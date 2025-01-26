@@ -15,10 +15,8 @@
 #include <sys/mman.h>
 #include <sys/errno.h>
 
-/* Definitions */
-#define MEMORY_MAX (1 << 16)
-
 /* Memory */
+#define MEMORY_MAX (1 << 16)
 uint16_t memory[MEMORY_MAX];
 
 /* Registers */
@@ -72,9 +70,9 @@ enum
 {
     MR_KBSR = 0xFE00, /* Keyboard Status */
     MR_KBDR = 0xFE02, /* Keyboard Data */
-    MR_DSR = 0xFE04,
-    MR_DDR = 0xFE06,
-    MR_MCR = 0xFFFE,
+    MR_DSR = 0xFE04,  /* Display Status */
+    MR_DDR = 0xFE06,  /* Display Data */
+    MR_MCR = 0xFFFE,  /* Machine Control Register */
 };
 
 /* Trap Codes */
@@ -98,6 +96,7 @@ enum
     SIGN_BIT = 1 << 15,
 };
 
+/* Terminal input buffering */
 struct termios original_tio;
 
 void disable_input_buffering(void)
