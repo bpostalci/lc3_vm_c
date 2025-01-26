@@ -423,18 +423,6 @@ void execute_trap(uint16_t instr)
         running = 0; // Stop the VM
         break;
     }
-
-    // uint16_t trapvect8 = instr & 0xFF;
-    // if (trapvect8 == 0x20)
-    // {
-    //     reg[0] = getchar();
-    // }
-    // else
-    // {
-    //     // fallback to OS implementation of remaining traps
-    //     reg[R_R7] = reg[R_PC];
-    //     reg[R_PC] = mem_read(trapvect8);
-    // }
 }
 
 uint16_t load_data(unsigned const char *data, size_t length)
