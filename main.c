@@ -15,8 +15,8 @@
 #include <sys/mman.h>
 #include <sys/errno.h>
 
-extern unsigned char lc3os_obj[];
-extern unsigned int lc3os_obj_len;
+// extern unsigned char lc3os_obj[];
+// extern unsigned int lc3os_obj_len;
 
 /* Definitions */
 #define MEMORY_MAX (1 << 16)
@@ -91,11 +91,14 @@ enum
     TRAP_HALT = 0x25
 };
 
-/* VM bits */
+/* VM run status */
+int running = 1;
+
+/* Special bits */
 enum
 {
-    VM_STATUS_BIT = 1 << 15,
-    VM_SIGN_BIT = 1 << 15,
+    STATUS_BIT = 1 << 15,
+    SIGN_BIT = 1 << 15,
 };
 
 struct termios original_tio;
@@ -144,7 +147,7 @@ void update_flags(uint16_t r)
     {
         reg[R_COND] = FL_ZRO;
     }
-    else if (reg[r] & VM_SIGN_BIT) /* Check leftmost bit for negative */
+    else if (reg[r] & SIGN_BIT) /* Check leftmost bit for negative */
     {
         reg[R_COND] = FL_NEG;
     }
@@ -182,7 +185,7 @@ uint16_t mem_read(uint16_t addr)
         timeout.tv_sec = 0;
         timeout.tv_usec = 0;
 
-        return select(1, &readfds, NULL, NULL, &timeout) ? VM_STATUS_BIT : 0;
+        return select(1, &readfds, NULL, NULL, &timeout) ? STATUS_BIT : 0;
     }
     else if (addr == MR_KBDR)
     {
@@ -197,7 +200,7 @@ uint16_t mem_read(uint16_t addr)
     }
     else if (addr == MR_DSR)
     {
-        return VM_STATUS_BIT;
+        return STATUS_BIT;
     }
     else if (addr == MR_DDR)
     {
@@ -348,17 +351,94 @@ void execute_str(uint16_t instr)
 
 void execute_trap(uint16_t instr)
 {
-    uint16_t trapvect8 = instr & 0xFF;
-    if (trapvect8 == 0x20)
+    // Save the current PC in R7 (for returning after the trap)
+    reg[R_R7] = reg[R_PC];
+
+    // Extract the trap vector (lower 8 bits of the instruction)
+    uint16_t trap_vector = instr & 0xFF;
+
+    // Handle the trap code
+    switch (trap_vector)
     {
-        reg[0] = getchar();
+    case TRAP_GETC:
+        // TRAP GETC: Read a single character from input
+        reg[R_R0] = (uint16_t)getchar();
+        update_flags(R_R0);
+        break;
+
+    case TRAP_OUT:
+        // TRAP OUT: Output a character
+        putc((char)reg[R_R0], stdout);
+        fflush(stdout);
+        break;
+
+    case TRAP_PUTS:
+        // TRAP PUTS: Output a null-terminated string
+        {
+            uint16_t *c = memory + reg[R_R0];
+            while (*c)
+            {
+                putc((char)*c, stdout);
+                ++c;
+            }
+            fflush(stdout);
+        }
+        break;
+
+    case TRAP_IN:
+        // TRAP IN: Prompt for input character and echo it
+        {
+            printf("Enter a character: ");
+            char c = getchar();
+            putc(c, stdout);
+            fflush(stdout);
+            reg[R_R0] = (uint16_t)c;
+            update_flags(R_R0);
+        }
+        break;
+
+    case TRAP_PUTSP:
+        // TRAP PUTSP: Output a byte string (two characters per word)
+        {
+            uint16_t *c = memory + reg[R_R0];
+            while (*c)
+            {
+                char char1 = (*c) & 0xFF; // Lower byte
+                putc(char1, stdout);
+                char char2 = (*c) >> 8; // Upper byte
+                if (char2)
+                    putc(char2, stdout);
+                ++c;
+            }
+            fflush(stdout);
+        }
+        break;
+
+    case TRAP_HALT:
+        // TRAP HALT: Halt the program
+        puts("HALT");
+        fflush(stdout);
+        running = 0; // Stop the VM
+        break;
+
+    default:
+        // Handle unknown trap codes
+        fprintf(stderr, "Unknown trap code: 0x%04X\n", trap_vector);
+        running = 0; // Stop the VM
+        break;
     }
-    else
-    {
-        // fallback to OS implementation of remaining traps
-        reg[R_R7] = reg[R_PC];
-        reg[R_PC] = mem_read(trapvect8);
-    }
+
+    // uint16_t trapvect8 = instr & 0xFF;
+    // if (trapvect8 == 0x20)
+    // {
+    //     reg[0] = getchar();
+    // }
+    // else
+    // {
+    //     // fallback to OS implementation of remaining traps
+    //     reg[R_R7] = reg[R_PC];
+    //     reg[R_PC] = mem_read(trapvect8);
+    // }
 }
 
 uint16_t load_data(unsigned const char *data, size_t length)
@@ -465,7 +545,7 @@ uint16_t run_instruction(uint16_t instr)
 
 uint16_t run_vm(void)
 {
-    while (mem_read(MR_MCR) & VM_STATUS_BIT)
+    while (running)
     {
         uint16_t res = run_instruction(mem_read(reg[R_PC]++));
         if (res != 0)
@@ -486,13 +566,7 @@ int main(int argc, const char *argv[])
 
     reg[R_PC] = 0x3000;
     reg[R_COND] = FL_ZRO;
-    memory[MR_MCR] = VM_STATUS_BIT;
-
-    if (load_data(lc3os_obj, lc3os_obj_len) != 0)
-    {
-        fprintf(stderr, "failed to load LC3 OS\n");
-        exit(2);
-    }
+    memory[MR_MCR] = STATUS_BIT;
 
     uint16_t res = load_file(argv[1]);
 
