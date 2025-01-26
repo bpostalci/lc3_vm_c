@@ -15,9 +15,6 @@
 #include <sys/mman.h>
 #include <sys/errno.h>
 
-// extern unsigned char lc3os_obj[];
-// extern unsigned int lc3os_obj_len;
-
 /* Definitions */
 #define MEMORY_MAX (1 << 16)
 
