@@ -12,3 +12,4 @@ cmake --build build
 ## References
 
 - [Write your Own Virtual Machine](https://www.jmeiners.com/lc3-vm/#:lc3.c_2)
+- [Introduction to Computing Systems: From Bits and Gates to C and Beyond](https://www.amazon.com/Introduction-Computing-Systems-Gates-Beyond/dp/0072467509)
