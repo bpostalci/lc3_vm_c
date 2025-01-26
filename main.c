@@ -361,14 +361,7 @@ void execute_trap(uint16_t instr)
     }
 }
 
-typedef enum
-{
-    LOAD_SUCCESS,
-    LOAD_INPUT_NOT_FOUND,
-    LOAD_INPUT_TOO_LARGE,
-} load_result;
-
-load_result load_data(unsigned const char *data, size_t length)
+uint16_t load_data(unsigned const char *data, size_t length)
 {
     uint16_t load_addr = swap16(*((uint16_t *)data));
     size_t load_length = (length - sizeof(uint16_t)) / sizeof(uint16_t);
@@ -378,9 +371,10 @@ load_result load_data(unsigned const char *data, size_t length)
     uint16_t *dest = memory + load_addr;
     uint16_t *source = (uint16_t *)(data + sizeof(uint16_t));
 
-    if (dest + load_length >= memory + UINT16_MAX)
+    if (dest + load_length >= memory + MEMORY_MAX)
     {
-        return LOAD_INPUT_TOO_LARGE;
+        fprintf(stderr, "data cannot fit in memory, max: %d, error: %s\n", MEMORY_MAX, strerror(errno));
+        return 1;
     }
 
     while (load_length-- > 0)
@@ -390,37 +384,23 @@ load_result load_data(unsigned const char *data, size_t length)
 
     reg[R_PC] = load_addr;
 
-    return LOAD_SUCCESS;
+    return 0;
 }
 
-void load_os(void)
-{
-    load_result res = load_data(lc3os_obj, lc3os_obj_len);
-    assert(res == LOAD_SUCCESS);
-}
-
-load_result load_file(const char *file)
+uint16_t load_file(const char *file)
 {
     int fd, ret;
     struct stat statbuf;
     unsigned char *data;
 
-    if ((fd = open(file, O_RDONLY)) < 0)
+    if ((fd = open(file, O_RDONLY)) < 0 ||
+        (ret = fstat(fd, &statbuf)) < 0 ||
+        (data = mmap(0, statbuf.st_size, PROT_READ, MAP_SHARED, fd, 0)) == MAP_FAILED)
     {
-        return LOAD_INPUT_NOT_FOUND;
+        return 1;
     }
 
-    if ((ret = fstat(fd, &statbuf)) < 0)
-    {
-        return LOAD_INPUT_NOT_FOUND;
-    }
-
-    if ((data = mmap(0, statbuf.st_size, PROT_READ, MAP_SHARED, fd, 0)) == MAP_FAILED)
-    {
-        return LOAD_INPUT_NOT_FOUND;
-    }
-
-    load_result result = load_data(data, statbuf.st_size);
+    uint16_t result = load_data(data, statbuf.st_size);
 
     munmap(data, statbuf.st_size);
     close(fd);
@@ -508,12 +488,15 @@ int main(int argc, const char *argv[])
     reg[R_COND] = FL_ZRO;
     memory[MR_MCR] = VM_STATUS_BIT;
 
-    load_os();
-    load_result res = load_file(argv[1]);
-
-    switch (res)
+    if (load_data(lc3os_obj, lc3os_obj_len) != 0)
     {
-    case LOAD_SUCCESS:
+        fprintf(stderr, "failed to load LC3 OS\n");
+        exit(2);
+    }
+
+    uint16_t res = load_file(argv[1]);
+
+    if (res == 0)
     {
         // Dump memory after successful load
         FILE *dump_file = fopen("memory_dump.txt", "w");
@@ -531,15 +514,10 @@ int main(int argc, const char *argv[])
             fclose(dump_file);
             printf("Memory dump written to memory_dump.txt\n");
         }
-        break;
     }
-
-    case LOAD_INPUT_NOT_FOUND:
-        fprintf(stderr, "%s: Failed to load input: %s\n", argv[0], strerror(errno));
-        exit(2);
-
-    case LOAD_INPUT_TOO_LARGE:
-        fprintf(stderr, "%s: Failed to load input: Input exceeded memory space\n", argv[0]);
+    else
+    {
+        fprintf(stderr, "%s: file cannot be loaded, error: %s\n", argv[0], strerror(errno));
         exit(2);
     }
 
@@ -548,7 +526,7 @@ int main(int argc, const char *argv[])
 
     run_vm();
 
-    printf("Exiting VM\n");
+    printf("Exiting VM...\n");
 
     restore_input_buffering();
 
